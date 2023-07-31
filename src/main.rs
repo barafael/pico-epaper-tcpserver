@@ -10,8 +10,10 @@ use cyw43_pio::PioSpi;
 use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
+use embassy_net::dns::DnsQueryType;
+use embassy_net::tcp::client::{TcpClient, TcpClientState};
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Config as NetConfig, DhcpConfig, Stack, StackResources};
+use embassy_net::{Config as NetConfig, DhcpConfig, IpAddress, Stack, StackResources};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::peripherals::{DMA_CH2, PIN_12, PIN_13, PIN_23, PIN_25, PIN_8, PIN_9, PIO0, SPI1};
 use embassy_rp::pio::{InterruptHandler, Pio};
@@ -20,13 +22,14 @@ use embassy_rp::{bind_interrupts, spi};
 use embassy_rp::{clocks::RoscRng, config::Config as RpConfig};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::Duration;
+use embassy_time::{Duration, Timer};
 use embedded_graphics::mono_font::ascii::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::Text;
 use embedded_io::asynch::Write;
+use embedded_nal_async::{SocketAddrV4, TcpConnect};
 use epd_waveshare::epd2in7b::{Display2in7b, Epd2in7b};
 use epd_waveshare::prelude::*;
 use rand::RngCore;
@@ -166,7 +169,7 @@ async fn main(spawner: Spawner) {
     let stack = &*make_static!(Stack::new(
         net_device,
         config,
-        make_static!(StackResources::<2>::new()),
+        make_static!(StackResources::<32>::new()),
         seed
     ));
 
@@ -179,6 +182,42 @@ async fn main(spawner: Spawner) {
             Err(err) => {
                 info!("join failed with status={}", err.status);
             }
+        }
+    }
+
+    let _config = embassy_net::Config::dhcpv4(Default::default());
+
+    // To ensure DHCP configuration before trying connect
+    Timer::after(Duration::from_secs(10)).await;
+
+    let IpAddress::Ipv4(address) =
+        unwrap!(stack.dns_query("www.humanoph.one", DnsQueryType::A).await)[0];
+    info!("Address of humanoph.one: {}", address);
+
+    let address = embedded_nal_async::SocketAddr::V4(SocketAddrV4::new(address.0.into(), 8080));
+
+    static STATE: TcpClientState<1, 1024, 1024> = TcpClientState::new();
+    let client = TcpClient::new(&stack, &STATE);
+
+    for i in 0..10 {
+        info!("connecting ({})...", i);
+        let mut connection = match client.connect(address).await {
+            Ok(connection) => connection,
+            Err(e) => {
+                info!("connect error: {:?}", e);
+                Timer::after(Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+        info!("connected!");
+        for _ in 0..10 {
+            let r = connection.write_all(b"Hello\n").await;
+            if let Err(e) = r {
+                info!("write error: {:?}", e);
+                Timer::after(Duration::from_secs(1)).await;
+                continue;
+            }
+            Timer::after(Duration::from_secs(1)).await;
         }
     }
 

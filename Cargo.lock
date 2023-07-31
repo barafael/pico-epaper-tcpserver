@@ -1161,6 +1161,7 @@ dependencies = [
  "embassy-time",
  "embedded-graphics",
  "embedded-io",
+ "embedded-nal-async",
  "epd-waveshare",
  "futures",
  "heapless",

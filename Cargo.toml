@@ -37,10 +37,12 @@ embassy-net = { version = "0.1.0", git = "https://github.com/embassy-rs/embassy"
     "defmt",
     "nightly",
     "tcp",
+    "dns",
     "udp",
     "dhcpv4",
-    "medium-ethernet",
+    "unstable-traits",
 ] }
+embedded-nal-async = "0.4.0"
 embassy-futures = { version = "0.1.0", git = "https://github.com/embassy-rs/embassy" }
 cyw43 = { git = "https://github.com/embassy-rs/embassy", features = [
     "defmt",
